@@ -10,9 +10,24 @@ use core::array::FixedSizeArray;
 use std::fmt::{Debug,Formatter};
 use std::iter::FromIterator;
 
+/// An alternative to `Vec<T>` that uses an embedded fixed-size array to store
+/// its elements, thus avoiding heap allocation.
+///
+/// The type parameter `A` must be a fixed-size array of elements of type `T`.
+/// The number of elements that can be stored by this vector is bounded by the
+/// size of `A`.
+///
+/// # Examples
+///
+/// ```
+/// use array_vec::*;
+/// let mut a: ArrayVec<i32, [_; 10]> = ArrayVec::new();
+/// a.push(7);
+/// assert_eq!(Some(7), a.pop());
+/// ```
 pub struct ArrayVec<T, A: FixedSizeArray<T>> {
-    array: Option<A>,
-    idx: usize, // FIXME: isize?
+    array: Option<A>, // is `None` only during destruction, see `impl Drop`
+    idx: usize,
     phantom: core::marker::PhantomData<T>
 }
 
@@ -31,6 +46,7 @@ impl<T, A: FixedSizeArray<T>> ArrayVec<T, A> {
         unreachable!();
     }
 
+    /// Create an empty `ArrayVec`.
     pub fn new() -> Self {
         ArrayVec {
             array: Some(unsafe { mem::uninitialized() }),
@@ -39,12 +55,17 @@ impl<T, A: FixedSizeArray<T>> ArrayVec<T, A> {
         }
     }
 
+    /// Returns the maximal amount of elements that can be stored in this
+    /// vector.
     pub fn capacity(&self) -> usize {
         mem::size_of::<A>() / mem::size_of::<T>()
     }
 
+    /// Returns the number of elements currently stored in this vector.
     pub fn length(&self) -> usize { self.idx }
 
+    /// Attempts to add an element to the end of this collection. Returns `Err`
+    /// if there is no space left in the underlying array.
     pub fn push(&mut self, x: T) -> Result<(), &'static str> {
         if self.idx < self.capacity() {
             unsafe {
@@ -60,6 +81,8 @@ impl<T, A: FixedSizeArray<T>> ArrayVec<T, A> {
         }
     }
 
+    /// Attempts remove the last element of this collection. Returns `None` if
+    /// there are no elements present.
     pub fn pop(&mut self) -> Option<T> {
         if self.idx <= 0 {
             None
@@ -171,6 +194,7 @@ mod test {
         let mut useless: ArrayVec<i32, [_; 0]> = ArrayVec::new();
         assert_eq!(0, useless.length());
         assert_eq!(0, useless.capacity());
+        assert!(useless.push(7).is_err());
     }
 
     static mut DROPPINGS_DROPPED: bool = false;
