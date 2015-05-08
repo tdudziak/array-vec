@@ -11,25 +11,29 @@ use std::fmt::{Debug,Formatter};
 use std::iter::FromIterator;
 
 pub struct ArrayVec<T, A: FixedSizeArray<T>> {
-    array: A,
+    array: Option<A>,
     idx: usize, // FIXME: isize?
     phantom: core::marker::PhantomData<T>
 }
 
 impl<T, A: FixedSizeArray<T>> ArrayVec<T, A> {
     unsafe fn base_ptr_mut(&mut self) -> *mut T {
-        let ptr_arr: *mut A = &mut self.array;
-        mem::transmute(ptr_arr)
+        if let &mut Some(ref mut ref_arr) = &mut self.array {
+            return mem::transmute(ref_arr as *mut A)
+        }
+        unreachable!();
     }
 
     unsafe fn base_ptr(&self) -> *const T {
-        let ptr_arr: *const A = &self.array;
-        mem::transmute(ptr_arr)
+        if let &Some(ref ref_arr) = &self.array {
+            return mem::transmute(ref_arr as *const A)
+        }
+        unreachable!();
     }
 
     pub fn new() -> Self {
         ArrayVec {
-            array: unsafe { mem::uninitialized() },
+            array: Some(unsafe { mem::uninitialized() }),
             idx: 0,
             phantom: core::marker::PhantomData
         }
@@ -68,6 +72,24 @@ impl<T, A: FixedSizeArray<T>> ArrayVec<T, A> {
                 Some(cell)
             }
         }
+    }
+}
+
+impl<T, A: FixedSizeArray<T>> ops::Drop for ArrayVec<T, A> {
+    fn drop(&mut self) {
+        while self.length() > 0 {
+            self.pop();
+            // The popped element goes out of scope here and its destructor is
+            // run (if present).
+        }
+
+        // The array now contains garbage and we have to prevent its destructor
+        // from running but we cannot mem::forget() out of borrowed context. To
+        // work around this, self.array is an Option type and we swap it with
+        // None.
+        let mut to_be_forgotten: Option<A> = None;
+        mem::swap(&mut self.array, &mut to_be_forgotten);
+        unsafe { mem::forget(to_be_forgotten) };
     }
 }
 
@@ -151,6 +173,8 @@ mod test {
         assert_eq!(0, useless.capacity());
     }
 
+    static mut DROPPINGS_DROPPED: bool = false;
+
     struct Droppings(u32);
 
     impl Droppings {
@@ -159,26 +183,25 @@ mod test {
 
     impl ops::Drop for Droppings {
         fn drop(&mut self) {
-            assert!(self.0 == 0xDEFEC8ED); // check for magic value from new()
-            self.0 = 0xDEADBEEF; // set to another magic value
+            // Check for the magic value from new(). The magic is used to
+            // distinguish properly-initialized values from random garbage.
+            assert!(self.0 == 0xDEFEC8ED);
+            unsafe { DROPPINGS_DROPPED = true };
         }
     }
 
-    // FIXME: re-enable and implement proper dropping
-    // #[test]
+    #[test]
     fn uninitialized_drop() {
         let mut a: ArrayVec<Droppings, [_; 3]> = ArrayVec::new();
-        a.push(Droppings::new());
-        a.push(Droppings::new());
+        a.push(Droppings::new()).unwrap();
+        a.push(Droppings::new()).unwrap();
         a.pop();
 
-        // check whether the destructor ran
+        // check whether dropping the vector executes elements' destructors
         unsafe {
-            let ptr: *const u32 = mem::transmute(a.base_ptr());
-            assert_eq!(0xDEFEC8ED, *ptr);
-            assert_eq!(0xDEADBEEF, *ptr.offset(1));
-            assert!(0xDEFEC8ED != *ptr.offset(2));
-            assert!(0xDEADBEEF != *ptr.offset(2));
+            DROPPINGS_DROPPED = false;
+            mem::drop(a);
+            assert!(DROPPINGS_DROPPED);
         }
     }
 }
