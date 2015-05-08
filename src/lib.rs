@@ -10,12 +10,6 @@ use core::array::FixedSizeArray;
 use std::fmt::{Debug,Formatter};
 use std::iter::FromIterator;
 
-// Assumptions made:
-//    1. [T; n] has a representation of n consecutive elements of size_of::<T>
-//    2. Only instances of FixedSizeArray<T> are of form [T; n]
-//
-// TODO: drop and destructors
-
 pub struct ArrayVec<T, A: FixedSizeArray<T>> {
     array: A,
     idx: usize, // FIXME: isize?
@@ -23,6 +17,16 @@ pub struct ArrayVec<T, A: FixedSizeArray<T>> {
 }
 
 impl<T, A: FixedSizeArray<T>> ArrayVec<T, A> {
+    unsafe fn base_ptr_mut(&mut self) -> *mut T {
+        let ptr_arr: *mut A = &mut self.array;
+        mem::transmute(ptr_arr)
+    }
+
+    unsafe fn base_ptr(&self) -> *const T {
+        let ptr_arr: *const A = &self.array;
+        mem::transmute(ptr_arr)
+    }
+
     pub fn new() -> Self {
         ArrayVec {
             array: unsafe { mem::uninitialized() },
@@ -40,7 +44,7 @@ impl<T, A: FixedSizeArray<T>> ArrayVec<T, A> {
     pub fn push(&mut self, x: T) -> Result<(), &'static str> {
         if self.idx < self.capacity() {
             unsafe {
-                let ptr: *mut T = mem::transmute(&mut self.array);
+                let ptr = self.base_ptr_mut();
                 let mut cell = x;
                 mem::swap(&mut *ptr.offset(self.idx as isize), &mut cell);
                 mem::forget(cell);
@@ -57,7 +61,7 @@ impl<T, A: FixedSizeArray<T>> ArrayVec<T, A> {
             None
         } else {
             unsafe {
-                let ptr: *mut T = mem::transmute(&mut self.array);
+                let ptr = self.base_ptr_mut();
                 let mut cell = mem::uninitialized();
                 mem::swap(&mut *ptr.offset(self.idx as isize - 1), &mut cell);
                 self.idx = self.idx - 1;
@@ -90,8 +94,7 @@ impl<T, A: FixedSizeArray<T>> ops::Deref for ArrayVec<T, A> {
 
     fn deref(&self) -> &[T] {
         unsafe {
-            let ptr: *const T = mem::transmute(&self.array);
-            slice::from_raw_parts(ptr, self.length())
+            slice::from_raw_parts(self.base_ptr(), self.length())
         }
     }
 }
@@ -99,8 +102,7 @@ impl<T, A: FixedSizeArray<T>> ops::Deref for ArrayVec<T, A> {
 impl<T, A: FixedSizeArray<T>> ops::DerefMut for ArrayVec<T, A> {
     fn deref_mut(&mut self) -> &mut [T] {
         unsafe {
-            let ptr: *mut T = mem::transmute(&self.array);
-            slice::from_raw_parts_mut(ptr, self.length())
+            slice::from_raw_parts_mut(self.base_ptr_mut(), self.length())
         }
     }
 }
@@ -172,12 +174,11 @@ mod test {
 
         // check whether the destructor ran
         unsafe {
-            let a_ptr: *const [Droppings; 3] = &a.array;
-            let i_ptr: *const u32 = mem::transmute(a_ptr);
-            assert_eq!(0xDEFEC8ED, *i_ptr);
-            assert_eq!(0xDEADBEEF, *i_ptr.offset(1));
-            assert!(0xDEFEC8ED != *i_ptr.offset(2));
-            assert!(0xDEADBEEF != *i_ptr.offset(2));
+            let ptr: *const u32 = mem::transmute(a.base_ptr());
+            assert_eq!(0xDEFEC8ED, *ptr);
+            assert_eq!(0xDEADBEEF, *ptr.offset(1));
+            assert!(0xDEFEC8ED != *ptr.offset(2));
+            assert!(0xDEADBEEF != *ptr.offset(2));
         }
     }
 }
