@@ -1,0 +1,4 @@
+[package]
+name = "array-vec"
+version = "0.1.0"
+authors = ["Tomasz Dudziak <tomasz.dudziak@gmail.com>"]
