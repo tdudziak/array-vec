@@ -16,7 +16,7 @@ use std::iter::FromIterator;
 //
 // TODO: drop and destructors
 
-struct ArrayVec<T, A: FixedSizeArray<T>> {
+pub struct ArrayVec<T, A: FixedSizeArray<T>> {
     array: A,
     idx: usize, // FIXME: isize?
     phantom: core::marker::PhantomData<T>
@@ -112,9 +112,72 @@ impl<T: Debug, A: FixedSizeArray<T>> Debug for ArrayVec<T, A> {
     }
 }
 
-#[test]
-fn push_pop() {
-    let mut a: ArrayVec<i32, [_; 10]> = ArrayVec::new();
-    a.push(5).unwrap();
-    assert_eq!(a.pop(), Some(5));
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    use std::ops;
+    use std::mem;
+
+    #[test]
+    fn push_pop() {
+        let mut a: ArrayVec<i32, [_; 10]> = ArrayVec::new();
+        assert_eq!(0, a.length());
+        assert_eq!(10, a.capacity());
+        a.push(5).unwrap();
+        assert_eq!(1, a.length());
+        assert_eq!(Some(5), a.pop());
+        assert_eq!(0, a.length());
+    }
+
+    #[test]
+    fn failures() {
+        let mut a: ArrayVec<i32, [_; 1]> = ArrayVec::new();
+        assert_eq!(0, a.length());
+        assert_eq!(None, a.pop());
+        assert_eq!(0, a.length());
+        assert_eq!(Ok(()), a.push(7));
+        assert_eq!(1, a.length());
+        assert!(a.push(13).is_err());
+        assert_eq!(1, a.length());
+    }
+
+    #[test]
+    fn zero_len() {
+        let mut useless: ArrayVec<i32, [_; 0]> = ArrayVec::new();
+        assert_eq!(0, useless.length());
+        assert_eq!(0, useless.capacity());
+    }
+
+    struct Droppings(u32);
+
+    impl Droppings {
+        fn new() -> Self { Droppings(0xDEFEC8ED) }
+    }
+
+    impl ops::Drop for Droppings {
+        fn drop(&mut self) {
+            assert!(self.0 == 0xDEFEC8ED); // check for magic value from new()
+            self.0 = 0xDEADBEEF; // set to another magic value
+        }
+    }
+
+    // FIXME: re-enable and implement proper dropping
+    // #[test]
+    fn uninitialized_drop() {
+        let mut a: ArrayVec<Droppings, [_; 3]> = ArrayVec::new();
+        a.push(Droppings::new());
+        a.push(Droppings::new());
+        a.pop();
+
+        // check whether the destructor ran
+        unsafe {
+            let a_ptr: *const [Droppings; 3] = &a.array;
+            let i_ptr: *const u32 = mem::transmute(a_ptr);
+            assert_eq!(0xDEFEC8ED, *i_ptr);
+            assert_eq!(0xDEADBEEF, *i_ptr.offset(1));
+            assert!(0xDEFEC8ED != *i_ptr.offset(2));
+            assert!(0xDEADBEEF != *i_ptr.offset(2));
+        }
+    }
 }
