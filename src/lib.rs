@@ -1,14 +1,22 @@
+#![feature(no_std)]
+#![no_std]
 #![feature(core)]
 
-extern crate core;
+// std is needed for tests
+#[cfg(test)] #[macro_use] extern crate std;
 
-use std::mem;
+#[macro_use] extern crate core;
+
+use core::prelude::*;
+
+use core::mem;
 use core::slice;
-use std::ops;
+use core::ops;
+use core::fmt;
 
 use core::array::FixedSizeArray;
-use std::fmt::{Debug,Formatter};
-use std::iter::FromIterator;
+use core::fmt::{Debug,Formatter};
+use core::iter::FromIterator;
 
 /// An alternative to `Vec<T>` that uses an embedded fixed-size array to store
 /// its elements, thus avoiding heap allocation.
@@ -153,7 +161,7 @@ impl<T, A: FixedSizeArray<T>> ops::DerefMut for ArrayVec<T, A> {
 }
 
 impl<T: Debug, A: FixedSizeArray<T>> Debug for ArrayVec<T, A> {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         let as_slice: &[T] = &**self;
         Debug::fmt(as_slice, f)
     }
@@ -162,9 +170,10 @@ impl<T: Debug, A: FixedSizeArray<T>> Debug for ArrayVec<T, A> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use core::prelude::*;
 
-    use std::ops;
-    use std::mem;
+    use core::ops;
+    use core::mem;
 
     #[test]
     fn push_pop() {
